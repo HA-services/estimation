@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_insabhi_manufacturing_estimation,Insabhi Manufacturing Estimation,model_insabhi_manufacturing_estimation,,1,1,1,1
+access_insabhi_manufacturing_estimation_lines,Insabhi Manufacturing Estimation Line,model_insabhi_manufacturing_estimation_line,,1,1,1,1
+access_insabhi_manufacturing_estimation_product,Insabhi Manufacturing Estimation Product,model_insabhi_manufacturing_estimation_product,,1,1,1,1
