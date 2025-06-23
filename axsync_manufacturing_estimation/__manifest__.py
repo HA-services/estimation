@@ -18,8 +18,9 @@
 {
     'name': 'Axsync Manufacturing Estimation',
     'category': "Manufacturing",
-    'license':' OPL-1',
+    "license": "LGPL-3",
     'summary': 'Smart Raw Material Check and Manufacturing Estimation',
+    "website": "https://axsync.com",
     'author': 'Axsync Global',
     'depends': ['base', 'product', 'sale_management', 'mrp', 'purchase'],
     'data': [
@@ -33,6 +34,6 @@
     'application':True,
     'currency':'USD',
     'price':'59.00',
-    'images':'[/static/description/BANNER.png]'
+    'images':['/static/description/ban.png']
     
 }
