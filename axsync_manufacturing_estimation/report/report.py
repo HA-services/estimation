@@ -63,15 +63,14 @@ class EstimationExcelReport(http.Controller):
                 line.raw_material.seller_ids[
                     0].partner_id.name if line.raw_material and line.raw_material.seller_ids else '',
                 line.raw_material.standard_price if line.raw_material else 0.0,
-                line.needed_char or 0.0,
+                line.needed or 0.0,
                 line.right_now_available or 0.0,
                 line.available or 0.0,
                 '❌'
             ]
 
             for col, value in enumerate(row_data):
-                # Write formatted numbers for decimals
-                if col in [2, 5, 7, 8] and isinstance(value, (int, float)):
+                if col in [2, 5, 6, 7, 8] and isinstance(value, (int, float)):
                     sheet.write(row, col, value, qty_format)
                     val_str = f"{value:.4f}"
                 else:
@@ -84,9 +83,47 @@ class EstimationExcelReport(http.Controller):
 
             row += 1
 
+        # ========================
+        # Add Grouped Summary Rows
+        # ========================
+        row += 1
+        sheet.write(row, 0, "Total Needed", bold)
+        row += 1
+
+        group_data = {}
+        for line in estimation.estimation_line_ids.filtered(lambda l: l.status == 'fail' and l.raw_material):
+            key = (line.raw_material.display_name,
+                   line.raw_material.seller_ids[0].partner_id.name if line.raw_material.seller_ids else '')
+            if key not in group_data:
+                group_data[key] = {'cost': 0.0, 'needed': 0.0, 'right_now': 0.0}
+            group_data[key]['cost'] += line.raw_material.standard_price or 0.0
+            group_data[key]['needed'] += line.needed or 0.0
+            group_data[key]['right_now'] += line.right_now_available or 0.0
+
+        for (raw_material, vendor), values in group_data.items():
+            summary_data = [
+                '', '', '', raw_material, vendor,
+                values['cost'],
+                values['needed'],
+                values['right_now'],
+                '', ''
+            ]
+
+            for col, value in enumerate(summary_data):
+                if col in [5, 6, 7] and isinstance(value, (int, float)):
+                    sheet.write(row, col, value, qty_format)
+                    val_str = f"{value:.4f}"
+                else:
+                    sheet.write(row, col, value)
+                    val_str = str(value)
+
+                if col < len(col_widths) and len(val_str) > col_widths[col]:
+                    col_widths[col] = len(val_str)
+            row += 1
+
         # Adjust column widths
         for i, width in enumerate(col_widths):
-            sheet.set_column(i, i, max(width + 2, 12) if i in [2, 5, 7, 8] else width + 2)
+            sheet.set_column(i, i, max(width + 2, 12) if i in [2, 5, 6, 7, 8] else width + 2)
 
         workbook.close()
         output.seek(0)

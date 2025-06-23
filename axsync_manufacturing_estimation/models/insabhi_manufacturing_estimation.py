@@ -1,4 +1,4 @@
-from odoo import models, fields, api
+from odoo import models, fields, api, _
 
 
 class InsabhiManufacturingEstimation(models.Model):
@@ -17,6 +17,40 @@ class InsabhiManufacturingEstimation(models.Model):
         'estimation_id',
         string="Estimation Lines"
     )
+    summary_lines = fields.One2many('insabhi.manufacturing.estimation.summary', 'estimation_id', string="Total Needed", compute='_compute_summary_lines', store=True)
+    purchase_order_ids = fields.Many2many('purchase.order', string="Purchase Orders", compute='_compute_purchase_order_ids', readonly=True, store=False)
+    purchase_order_count = fields.Integer('Purchase order count', compute='_compute_purchase_order_ids')
+    sale_id = fields.Many2one('sale.order', string='Reference', readonly=True)
+
+    @api.depends('estimation_line_ids')
+    def _compute_purchase_order_ids(self):
+        for rec in self:
+            purchase_order_ids = self.env['purchase.order'].sudo().search([('estimation_id', '=', rec.id)])
+            rec.purchase_order_ids = [(6, 0, purchase_order_ids.ids)]
+            rec.purchase_order_count = len(purchase_order_ids)
+
+    @api.depends('estimation_line_ids')
+    def _compute_summary_lines(self):
+        for record in self:
+            summary_vals = {}
+            for line in record.estimation_line_ids.filtered(lambda l: l.status == 'fail'):
+                key = (line.raw_material.id, line.partner_id.id)
+                if key not in summary_vals:
+                    summary_vals[key] = {
+                        'raw_material': line.raw_material.id,
+                        'partner_id': line.partner_id.id,
+                        'cost': 0.0,
+                        'needed': 0.0,
+                        'right_now': 0.0,
+                    }
+                summary_vals[key]['cost'] += line.cost or 0.0
+                summary_vals[key]['needed'] += line.needed or 0.0
+                summary_vals[key]['right_now'] += line.right_now_available or 0.0
+
+            result = [(5, 0, 0)]
+            for val in summary_vals.values():
+                result.append((0, 0, val))
+            record.summary_lines = result
 
     @api.onchange('product_ids')
     def _onchange_product_ids(self):
@@ -149,6 +183,70 @@ class InsabhiManufacturingEstimation(models.Model):
     #     new_lines = self._update_estimation_lines()
     #     self.estimation_line_ids = [(5, 0, 0)] + new_lines
 
+    def action_create_po(self):
+        PO = self.env['purchase.order']
+        notification_msg = ""
+
+        for summary in self.summary_lines.filtered(lambda obj: obj.is_create_po):
+            if not summary.raw_material or not summary.partner_id:
+                continue  # Skip incomplete lines
+
+            order_line_vals = {
+                'product_id': summary.raw_material.id,
+                'name': summary.raw_material.name,
+                'price_unit': summary.cost,
+                'product_qty': summary.needed,
+            }
+
+            po_order = PO.search([
+                ('estimation_id', '=', self.id),
+                ('partner_id', '=', summary.partner_id.id),
+                ('state', 'in', ['draft', 'sent'])
+            ], limit=1)
+
+            if not po_order:
+                new_po = PO.create({
+                    'partner_id': summary.partner_id.id,
+                    'estimation_id': self.id,
+                    'order_line': [(0, 0, order_line_vals)],
+                })
+                notification_msg = f"PO created successfully"
+            else:
+                existing_line = po_order.order_line.filtered(lambda l: l.product_id == summary.raw_material)
+                if existing_line:
+                    existing_line.write({
+                        'price_unit': summary.cost,
+                        'product_qty': summary.needed,
+                        'name': summary.raw_material.name,
+                    })
+                    notification_msg = f"PO updated successfully"
+                else:
+                    po_order.write({
+                        'order_line': [(0, 0, order_line_vals)],
+                    })
+                    notification_msg = f"Added line successfully"
+
+        notif_message = notification_msg if notification_msg else _("Please select the 'Create PO' checkbox")
+
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'type': 'success' if notification_msg else 'warning',
+                'title': _("Purchase Order Update"),
+                'message': notif_message,
+                'sticky': False,
+                'next': {'type': 'ir.actions.act_window_close'},
+            }
+        }
+
+    def action_view_po(self):
+        self.ensure_one()
+        action = self.env["ir.actions.actions"]._for_xml_id("purchase.purchase_form_action")
+        action['domain'] = [('id', 'in', self.mapped('purchase_order_ids.id'))]
+        action['context'] = dict(self._context, create=False)
+        return action
+
     def write(self, vals):
         res = super().write(vals)
         if vals.get('product_ids'):
@@ -169,7 +267,7 @@ class InsabhiManufacturingEstimationLine(models.Model):
     product_code = fields.Char(string='Code')
     raw_material = fields.Many2one('product.product', string='Raw Material')
     cost = fields.Float(string='Cost', digits=(16, 4))
-    quantity = fields.Float(string='Quantity', compute="_compute_quantity", store=True, digits=(16, 4))
+    quantity = fields.Float(string='Quantity', digits=(16, 4))
     quantity_char = fields.Char(string='Quantity', default='1.0')
     needed = fields.Float(string='Needed', digits=(16, 4))
     needed_char = fields.Char(string='Needed')
@@ -179,24 +277,6 @@ class InsabhiManufacturingEstimationLine(models.Model):
     status_icon = fields.Char(string="Status")
     right_now_available = fields.Float(string='Remaining', digits=(16, 4))
     partner_id = fields.Many2one('res.partner', string='Vendor')
-
-    @api.depends('estimation_id.product_ids.quantity')
-    def _compute_quantity(self):
-        for rec in self.estimation_id.product_ids:
-            bom = self.env['mrp.bom'].search([
-                ('product_tmpl_id', 'in', rec.product_id.product_tmpl_id.ids),
-                ('active', '=', True)
-            ], limit=1)
-
-            if not bom:
-                continue
-
-            quantity = rec.quantity
-            for idx, bom_line in enumerate(bom.bom_line_ids):
-                for line in rec.estimation_id.estimation_line_ids:
-                    if line.product_id.id == rec.product_id.id:
-                        line.quantity = quantity
-                        line.needed = bom_line.product_qty * line.quantity
 
     def action_open_product(self):
         action = self.env["ir.actions.actions"]._for_xml_id("stock.stock_product_normal_action")
@@ -215,3 +295,100 @@ class InsabhiManufacturingEstimationProduct(models.Model):
     product_id = fields.Many2one('product.product', string='Product')
     quantity = fields.Float(string='Quantity', default=1.0, digits=(16, 4))
     is_active = fields.Boolean(string='Active', default=True)
+
+
+class EstimationSummary(models.Model):
+    _name = 'insabhi.manufacturing.estimation.summary'
+    _description = 'Summary Line (Total Needed)'
+
+    estimation_id = fields.Many2one('insabhi.manufacturing.estimation')
+    raw_material = fields.Many2one('product.product', string="Raw Material")
+    partner_id = fields.Many2one('res.partner', string="Vendor")
+    cost = fields.Float(string='Cost', digits=(16, 4))
+    needed = fields.Float(string='Needed', digits=(16, 4))
+    right_now = fields.Float(string='Remaining', digits=(16, 4))
+    is_create_po = fields.Boolean(string='Create PO')
+
+
+class PurchaseOrder(models.Model):
+    _inherit = 'purchase.order'
+
+    estimation_id = fields.Many2one('insabhi.manufacturing.estimation', copy=False)
+
+
+class SaleOrder(models.Model):
+    _inherit = 'sale.order'
+
+    estimation_id = fields.Many2one('insabhi.manufacturing.estimation', string='Estimation', copy=False)
+    estimation_order_ids = fields.Many2many('purchase.order', string="Estimation Orders",compute='_compute_estimation_order_ids', readonly=True, store=False)
+    estimation_order_count = fields.Integer('Estimation order count', compute='_compute_estimation_order_ids')
+
+    @api.depends('estimation_id')
+    def _compute_estimation_order_ids(self):
+        for rec in self:
+            estimation_order_ids = self.env['insabhi.manufacturing.estimation'].sudo().search([('sale_id', '=', rec.id)])
+            rec.estimation_order_ids = [(6, 0, estimation_order_ids.ids)]
+            rec.estimation_order_count = len(estimation_order_ids)
+
+    def action_create_estimation(self):
+        data = []
+        skipped_lines = []
+        if self.order_line:
+            for line in self.order_line:
+                if line.product_id:
+                    if line.product_id.virtual_available < line.product_uom_qty:
+                        data.append((0, 0, {
+                            'product_id': line.product_id.id,
+                            'quantity': line.product_uom_qty,
+                            'is_active': True,
+                        }))
+                    else:
+                        skipped_lines.append(line.product_id.display_name)
+
+            if not data:
+                message_type = "warning"
+                message = _("All products have sufficient forecasted stock.")
+            else:
+                if not self.estimation_id:
+                    # Create new estimation
+                    estimation = self.env['insabhi.manufacturing.estimation'].create({
+                        'display_name': f"Created from {self.name}",
+                        'sale_id': self.id,
+                        'product_ids': data,
+                    })
+                    self.estimation_id = estimation.id
+                    estimation._onchange_product_ids()
+                    message = _("Estimation created from Sale Order %s.") % self.name
+                else:
+                    # Update existing estimation
+                    self.estimation_id.product_ids.unlink()
+                    self.estimation_id.write({'product_ids': data})
+                    self.estimation_id._onchange_product_ids()
+                    message = _("Estimation updated for Sale Order %s.") % self.name
+
+                if skipped_lines:
+                    pass
+                    # message += "\n\n" + _("Skipped lines (sufficient stock):") + "\n- " + "\n- ".join(skipped_lines)
+                message_type = "success"
+        else:
+            message_type = "warning"
+            message = _("Please add a line before estimation.")
+
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'type': message_type,
+                'title': _("Estimation Update"),
+                'message': message,
+                'sticky': False,
+                'next': {'type': 'ir.actions.act_window_close'},
+            }
+        }
+
+    def action_view_estimation(self):
+        self.ensure_one()
+        action = self.env["ir.actions.actions"]._for_xml_id("axsync_manufacturing_estimation.action_new_project")
+        action['domain'] = [('id', 'in', self.mapped('estimation_order_ids.id'))]
+        action['context'] = dict(self._context, create=False)
+        return action
