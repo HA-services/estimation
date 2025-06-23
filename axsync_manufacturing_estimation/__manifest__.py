@@ -34,6 +34,6 @@
     'application':True,
     'currency':'USD',
     'price':'59.00',
-    'images':['/static/description/ban.png']
+    'images':['static/description/ban.png']
     
 }
