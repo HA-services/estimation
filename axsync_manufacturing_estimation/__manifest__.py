@@ -18,7 +18,7 @@
 {
     'name': 'Axsync Manufacturing Estimation',
     'category': "Manufacturing",
-    'license':'OEEL-1',
+    'license':' OPL-1',
     'summary': 'Smart Raw Material Check and Manufacturing Estimation',
     'author': 'Axsync Global',
     'depends': ['base', 'product', 'sale_management', 'mrp', 'purchase'],
