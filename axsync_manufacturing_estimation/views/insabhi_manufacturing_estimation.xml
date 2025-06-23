@@ -25,11 +25,28 @@
                             string="Print Report"
                             class="oe_highlight"/>
                 </header>
+                <div class="oe_button_box"  name="button_box">
+                    <button class="oe_stat_button" name="action_view_po"
+                            type="object" icon="fa-credit-card" help="Purchase Orders"
+                            invisible="purchase_order_count == 0">
+                        <div class="o_field_widget o_stat_info">
+                            <span class="o_stat_value">
+                                <field name="purchase_order_count" widget="statinfo" nolabel="1" class="mr4"/>
+                            </span>
+                            <span class="o_stat_text">Purchases</span>
+                        </div>
+                    </button>
+                </div>
                 <div class="oe_title">
                     <h1><field name="name" options="{'line_breaks': False}" widget="text" placeholder="e.g. Sales Manager"/></h1>
                 </div>
                 <group>
-                    <field name="display_name"/>
+                    <group>
+                        <field name="display_name"/>
+                    </group>
+                    <group>
+                        <field name="sale_id"/>
+                    </group>
                 </group>
                 <group>
                     <group>
@@ -63,10 +80,23 @@
                                 <field name="needed" column_invisible="1" readonly="1" force_save="1"/>
                                 <field name="needed_char" readonly="1" force_save="1"/>
                                 <field name="right_now_available" readonly="1" force_save="1"/>
-                                
                                 <field name="available_char" column_invisible="1" readonly="1" force_save="1"/>
                                 <field name="status" column_invisible="1" readonly="1" force_save="1"/>
                                 <field name="status_icon" class="oe_left" readonly="1" force_save="1"/>
+                            </list>
+                        </field>
+                        <button name="action_create_po" type="object" class="oe_highlight">
+                            Create PO
+                        </button>
+                        <separator string="Total Needed"/>
+                        <field name="summary_lines" readonly="0">
+                            <list editable="bottom" create="false" delete="false">
+                                <field name="raw_material" readonly="1" force_save="1"/>
+                                <field name="partner_id" readonly="1" force_save="1"/>
+                                <field name="cost" readonly="1" force_save="1"/>
+                                <field name="needed" readonly="1" force_save="1"/>
+                                <field name="right_now" readonly="1" force_save="1"/>
+                                <field name="is_create_po" readonly="0" force_save="1"/>
                             </list>
                         </field>
                     </page>
@@ -81,6 +111,7 @@
             <list string="Manufacturing Estimation">
                 <field name="name"/>
                 <field name="display_name"/>
+                <field name="sale_id"/>
             </list>
         </field>
     </record>
@@ -93,5 +124,45 @@
               name="Manufacturing Estimation"
               action="axsync_manufacturing_estimation.action_new_project"
               web_icon="axsync_manufacturing_estimation,static/description/icon.png"/>
+
+    <record id="insabhi_view_purchase_order_form_inherit" model="ir.ui.view">
+        <field name="name">insabhi_purchase.order.form.inherit</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='fiscal_position_id']" position="after">
+                <field name="estimation_id" string="Source Estimation" options="{'no_quick_create': True, 'no_create_edit': True}"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="insabhi_view_sale_order_form_inherit" model="ir.ui.view">
+        <field name="name">insabhi_sale.order.form.inherit</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_create_estimation" type="object" class="oe_highlight" invisible="state in ['sale', 'cancel']">
+                    Create Estimation
+                </button>
+            </xpath>
+<!--            <xpath expr="//field[@name='source_id']" position="after">-->
+<!--                <field name="estimation_id" string="Source Estimation" options="{'no_quick_create': True, 'no_create_edit': True}"/>-->
+<!--            </xpath>-->
+            <xpath expr="//div[hasclass('oe_button_box')]" position="inside">
+                <button type="object"
+                        name="action_view_estimation"
+                        class="oe_stat_button"
+                        icon="fa-shopping-basket"
+                        invisible="estimation_order_count == 0">
+                        <div class="o_field_widget o_stat_info">
+                            <span class="o_stat_value d-flex">
+                                <field name="estimation_order_count" widget="statinfo" nolabel="1" class="mr4" /> Estimation
+                            </span>
+                        </div>
+                    </button>
+            </xpath>
+        </field>
+    </record>
 
 </odoo>
